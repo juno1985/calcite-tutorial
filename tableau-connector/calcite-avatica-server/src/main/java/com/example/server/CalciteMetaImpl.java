@@ -28,9 +28,6 @@ public class CalciteMetaImpl extends MetaImpl {
     private final Map<String, Statement> statements = new HashMap<>();
     private final Map<String, String> statementSql = new HashMap<>();
 
-    private String TABLEAU_CATALOG = "FABRIC_CALCITE";
-    private String TABLEAU_SCHEMA="FABRIC_SCHEMA";
-
     public CalciteMetaImpl(Connection connection) {
         super((AvaticaConnection) connection);
         this.connection = connection;
@@ -193,8 +190,7 @@ public class CalciteMetaImpl extends MetaImpl {
     @Override
     public MetaResultSet getTables(ConnectionHandle ch, String catalog, Pat schemaPattern, Pat tableNamePattern, List<String> typeList) {
         try {
-            // Debug logging
-            System.out.println("getTables called with:");
+            System.out.println("\ngetTables called with:");
             System.out.println("  catalog: " + catalog);
             System.out.println("  schemaPattern: " + (schemaPattern == null ? "null" : schemaPattern.s));
             System.out.println("  tableNamePattern: " + (tableNamePattern == null ? "null" : tableNamePattern.s));
@@ -203,23 +199,13 @@ public class CalciteMetaImpl extends MetaImpl {
             // Always include TABLE and VIEW types for Tableau compatibility
             if (typeList == null || typeList.isEmpty()) {
                 typeList = Arrays.asList("TABLE", "VIEW");
-            } else {
-                // If typeList is provided but doesn't include VIEW, add it
-                if (!typeList.contains("VIEW")) {
-                    List<String> newTypeList = new ArrayList<>(typeList);
-                    newTypeList.add("VIEW");
-                    typeList = newTypeList;
-                }
+            } else if (!typeList.contains("VIEW")) {
+                List<String> newTypeList = new ArrayList<>(typeList);
+                newTypeList.add("VIEW");
+                typeList = newTypeList;
             }
 
-            // Only return tables if the catalog matches
-            if (catalog != null && !TABLEAU_CATALOG.equals(catalog)) {
-                System.out.println("Returning empty result set due to catalog mismatch");
-                return createEmptyResultSet();
-            }
-
-            // Use default schema if none specified
-            String schemaName = schemaPattern == null ? TABLEAU_SCHEMA : schemaPattern.s;
+            String schemaName = schemaPattern == null ? "%" : schemaPattern.s;
             String tableName = tableNamePattern == null ? "%" : tableNamePattern.s;
 
             System.out.println("\nQuerying metadata for schema: " + schemaName);
@@ -248,7 +234,7 @@ public class CalciteMetaImpl extends MetaImpl {
                                  ", type=" + foundType);
 
                 List<Object> row = Arrays.asList(
-                    TABLEAU_CATALOG,
+                    foundCatalog,
                     foundSchema,
                     foundTable,
                     foundType,
@@ -286,10 +272,25 @@ public class CalciteMetaImpl extends MetaImpl {
     @Override
     public MetaResultSet getSchemas(ConnectionHandle ch, String catalog, Pat schemaPattern) {
         try {
+            System.out.println("\ngetSchemas called with:");
+            System.out.println("  catalog: " + catalog);
+            System.out.println("  schemaPattern: " + (schemaPattern == null ? "null" : schemaPattern.s));
+
+            ResultSet rs = connection.getMetaData().getSchemas(
+                catalog,
+                schemaPattern == null ? "%" : schemaPattern.s);
+
             List<Object> rows = new ArrayList<>();
-            // Add the CSV schema under the CALCITE catalog
-            if (catalog == null || TABLEAU_CATALOG.equals(catalog)) {
-                rows.add(Arrays.asList(TABLEAU_SCHEMA, TABLEAU_CATALOG));
+            while (rs.next()) {
+                String foundSchema = rs.getString(1);
+                String foundCatalog = rs.getString(2);
+                System.out.println("  Found schema: " + foundSchema + " in catalog: " + foundCatalog);
+                
+                List<Object> row = Arrays.asList(
+                    foundSchema,
+                    foundCatalog
+                );
+                rows.add(row);
             }
 
             List<ColumnMetaData> columns = Arrays.asList(
@@ -298,24 +299,7 @@ public class CalciteMetaImpl extends MetaImpl {
             );
 
             return createMetaResultSet(columns, rows);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    @Override
-    public MetaResultSet getCatalogs(ConnectionHandle ch) {
-        try {
-            List<Object> rows = new ArrayList<>();
-            // Add a default catalog
-            rows.add(Collections.singletonList(TABLEAU_CATALOG));
-
-            List<ColumnMetaData> columns = Collections.singletonList(
-                columnMetaData(0, "TABLE_CAT", Types.VARCHAR, "String")
-            );
-
-            return createMetaResultSet(columns, rows);
-        } catch (Exception e) {
+        } catch (SQLException e) {
             throw new RuntimeException(e);
         }
     }
@@ -324,19 +308,34 @@ public class CalciteMetaImpl extends MetaImpl {
     public MetaResultSet getColumns(ConnectionHandle ch, String catalog, Pat schemaPattern,
             Pat tableNamePattern, Pat columnNamePattern) {
         try {
+            System.out.println("\ngetColumns called with:");
+            System.out.println("  catalog: " + catalog);
+            System.out.println("  schemaPattern: " + (schemaPattern == null ? "null" : schemaPattern.s));
+            System.out.println("  tableNamePattern: " + (tableNamePattern == null ? "null" : tableNamePattern.s));
+            System.out.println("  columnNamePattern: " + (columnNamePattern == null ? "null" : columnNamePattern.s));
+
             ResultSet rs = connection.getMetaData().getColumns(
                 catalog,
-                schemaPattern == null ? TABLEAU_SCHEMA : schemaPattern.s,
+                schemaPattern == null ? "%" : schemaPattern.s,
                 tableNamePattern == null ? "%" : tableNamePattern.s,
                 columnNamePattern == null ? "%" : columnNamePattern.s);
 
             List<Object> rows = new ArrayList<>();
             while (rs.next()) {
+                String foundCatalog = rs.getString(1);
+                String foundSchema = rs.getString(2);
+                String foundTable = rs.getString(3);
+                String foundColumn = rs.getString(4);
+                System.out.println("  Found: column=" + foundColumn + 
+                                 " in table=" + foundTable + 
+                                 ", schema=" + foundSchema + 
+                                 ", catalog=" + foundCatalog);
+
                 List<Object> row = Arrays.asList(
-                    rs.getString(1),   // TABLE_CAT
-                    rs.getString(2),   // TABLE_SCHEM
-                    rs.getString(3),   // TABLE_NAME
-                    rs.getString(4),   // COLUMN_NAME
+                    foundCatalog,
+                    foundSchema,
+                    foundTable,
+                    foundColumn,
                     rs.getInt(5),      // DATA_TYPE
                     rs.getString(6),   // TYPE_NAME
                     rs.getInt(7),      // COLUMN_SIZE
@@ -355,8 +354,7 @@ public class CalciteMetaImpl extends MetaImpl {
                     null,              // SCOPE_SCHEMA
                     null,              // SCOPE_TABLE
                     null,              // SOURCE_DATA_TYPE
-                    "NO",             // IS_AUTOINCREMENT
-                    "NO"              // IS_GENERATEDCOLUMN
+                    "NO"              // IS_AUTOINCREMENT
                 );
                 rows.add(row);
             }
@@ -384,8 +382,7 @@ public class CalciteMetaImpl extends MetaImpl {
                 columnMetaData(19, "SCOPE_SCHEMA", Types.VARCHAR, "String"),
                 columnMetaData(20, "SCOPE_TABLE", Types.VARCHAR, "String"),
                 columnMetaData(21, "SOURCE_DATA_TYPE", Types.SMALLINT, "Short"),
-                columnMetaData(22, "IS_AUTOINCREMENT", Types.VARCHAR, "String"),
-                columnMetaData(23, "IS_GENERATEDCOLUMN", Types.VARCHAR, "String")
+                columnMetaData(22, "IS_AUTOINCREMENT", Types.VARCHAR, "String")
             );
 
             return createMetaResultSet(columns, rows);
@@ -403,7 +400,7 @@ public class CalciteMetaImpl extends MetaImpl {
             false,
             DatabaseMetaData.columnNullable,
             true,
-            32,
+            type,
             columnName,
             columnName,
             null,

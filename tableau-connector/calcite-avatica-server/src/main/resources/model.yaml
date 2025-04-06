@@ -1,7 +1,7 @@
 version: 1.0
-defaultSchema: FABRIC_SCHEMA
+defaultSchema: HR_SCHEMA
 schemas:
-  - name: FABRIC_SCHEMA
+  - name: HR_SCHEMA
     type: custom
     factory: org.apache.calcite.adapter.csv.CsvSchemaFactory
     operand:
@@ -16,8 +16,24 @@ schemas:
           file: "F:/fabric/calcite_tableau_v1/calcite/calcite-avatica-server/src/main/resources/data/employees.csv"
           flavor: scannable
           translatable: true
-      - name: EMPLOYEE_VIEW
+      - name: employee_view
         type: view
         sql: >
-          SELECT id, name 
+          SELECT "ID", "NAME" 
           FROM "employees"
+
+  - name: SALES_SCHEMA
+    type: custom
+    factory: org.apache.calcite.adapter.csv.CsvSchemaFactory
+    operand:
+      directory: "F:/fabric/calcite_tableau_v1/calcite/calcite-avatica-server/src/main/resources/data"
+      flavor: scannable
+      translatable: true
+    tables:
+      - name: orders
+        type: custom
+        factory: org.apache.calcite.adapter.csv.CsvTableFactory
+        operand:
+          file: "F:/fabric/calcite_tableau_v1/calcite/calcite-avatica-server/src/main/resources/data/orders.csv"
+          flavor: scannable
+          translatable: true

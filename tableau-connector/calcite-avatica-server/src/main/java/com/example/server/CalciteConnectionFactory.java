@@ -24,7 +24,7 @@ public class CalciteConnectionFactory {
 
         Properties info = new Properties();
         info.setProperty("model", modelFile.getAbsolutePath());
-        info.setProperty("caseSensitive", "false");
+        info.setProperty("caseSensitive", "true");  // Change to true to respect case sensitivity
         
         System.out.println("\nCreating connection with properties:");
         info.forEach((k, v) -> System.out.println("  " + k + "=" + v));
