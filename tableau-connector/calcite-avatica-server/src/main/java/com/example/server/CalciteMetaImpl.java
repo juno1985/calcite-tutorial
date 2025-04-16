@@ -58,15 +58,17 @@ public class CalciteMetaImpl extends MetaImpl {
             boolean isQuery = statement.execute(sql);
             if (isQuery) {
                 ResultSet resultSet = statement.getResultSet();
-                ResultSetMetaData metaData = resultSet.getMetaData();
+                // Create signature with metadata BEFORE processing rows
                 h.signature = createSignature(sql, resultSet);
                 
                 List<Object> rows = new ArrayList<>();
                 int rowCount = 0;
                 while (resultSet.next() && (maxRowCount < 0 || rowCount < maxRowCount)) {
                     List<Object> row = new ArrayList<>();
-                    for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                        row.add(resultSet.getObject(i));
+                    for (int i = 1; i <= resultSet.getMetaData().getColumnCount(); i++) {
+                        Object value = resultSet.getObject(i);
+                        // Handle null values appropriately
+                        row.add(value != null ? value : "");
                     }
                     rows.add(row);
                     rowCount++;
@@ -81,7 +83,7 @@ public class CalciteMetaImpl extends MetaImpl {
                     Meta.MetaResultSet.count(String.valueOf(h.id), updateCount, 0L)));
             }
         } catch (SQLException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Error executing query: " + e.getMessage(), e);
         }
     }
 
@@ -447,39 +449,59 @@ public class CalciteMetaImpl extends MetaImpl {
         List<ColumnMetaData> columns = new ArrayList<>();
         
         for (int i = 1; i <= metaData.getColumnCount(); i++) {
-            ColumnMetaData.Rep rep = getRepFromSqlType(metaData.getColumnType(i));
+            int columnType = metaData.getColumnType(i);
+            ColumnMetaData.Rep rep = getRepFromSqlType(columnType);
+            
+            // Create scalar type with proper type mapping
             ColumnMetaData.ScalarType scalarType = ColumnMetaData.scalar(
-                metaData.getColumnType(i),
+                columnType,
                 metaData.getColumnTypeName(i),
                 rep);
+            
+            // Get precision and scale for numeric types
+            int precision = 0;
+            int scale = 0;
+            if (columnType == Types.NUMERIC || columnType == Types.DECIMAL) {
+                precision = metaData.getPrecision(i);
+                scale = metaData.getScale(i);
+            }
+            
+            String columnLabel = metaData.getColumnLabel(i);
+            String columnName = metaData.getColumnName(i);
+            String displayName = columnLabel != null && !columnLabel.isEmpty() ? columnLabel : columnName;
             
             columns.add(
                 new ColumnMetaData(
                     i - 1,                           // ordinal
-                    false,                          // autoIncrement
-                    false,                          // caseSensitive
-                    false,                          // searchable
-                    false,                          // currency
+                    metaData.isAutoIncrement(i),    // autoIncrement
+                    metaData.isCaseSensitive(i),    // caseSensitive
+                    metaData.isSearchable(i),       // searchable
+                    metaData.isCurrency(i),         // currency
                     metaData.isNullable(i),         // nullable
-                    true,                           // signed
+                    metaData.isSigned(i),           // signed
                     metaData.getColumnDisplaySize(i), // displaySize
-                    metaData.getColumnLabel(i),      // label
-                    metaData.getColumnName(i),       // columnName
-                    metaData.getSchemaName(i),       // schemaName
-                    0,                               // precision
-                    0,                               // scale
-                    metaData.getTableName(i),        // tableName
-                    metaData.getCatalogName(i),      // catalogName
-                    scalarType,                      // type
-                    true,                            // readonly
-                    false,                           // writable
-                    false,                           // definitelyWritable
+                    displayName,                     // label
+                    columnName,                      // columnName
+                    metaData.getSchemaName(i),      // schemaName
+                    precision,                       // precision
+                    scale,                          // scale
+                    metaData.getTableName(i),       // tableName
+                    metaData.getCatalogName(i),     // catalogName
+                    scalarType,                     // type
+                    metaData.isReadOnly(i),         // readonly
+                    metaData.isWritable(i),         // writable
+                    metaData.isDefinitelyWritable(i), // definitelyWritable
                     metaData.getColumnClassName(i)   // columnClassName
                 ));
         }
         
-        return Meta.Signature.create(columns, sql, Collections.emptyList(), Meta.CursorFactory.ARRAY,
-            Meta.StatementType.SELECT);
+        return Meta.Signature.create(
+            columns,
+            sql,
+            Collections.emptyList(),
+            Meta.CursorFactory.ARRAY,
+            Meta.StatementType.SELECT
+        );
     }
 
     private ColumnMetaData.Rep getRepFromSqlType(int sqlType) {
