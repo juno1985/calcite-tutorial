@@ -35,10 +35,26 @@ public class CalciteMetaImpl extends MetaImpl {
 
     @Override
     public Meta.StatementHandle prepare(Meta.ConnectionHandle ch, String sql, long maxRowCount) {
-        Meta.StatementHandle handle = super.createStatement(ch);
-        handle.signature = createSignature(sql);
-        statementSql.put(String.valueOf(handle.id), sql);
-        return handle;
+        try {
+            Meta.StatementHandle handle = super.createStatement(ch);
+            Statement statement = connection.createStatement();
+            statements.put(String.valueOf(handle.id), statement);
+            
+            // Execute the query to get metadata
+            boolean isQuery = statement.execute(sql);
+            if (isQuery) {
+                ResultSet resultSet = statement.getResultSet();
+                handle.signature = createSignature(sql, resultSet);
+                resultSet.close();
+            } else {
+                handle.signature = createSignature(sql);
+            }
+            
+            statementSql.put(String.valueOf(handle.id), sql);
+            return handle;
+        } catch (SQLException e) {
+            throw new RuntimeException("Error preparing statement: " + e.getMessage(), e);
+        }
     }
 
     @Override
